@@ -1,0 +1,90 @@
+\section{Experiments with Local LLM}
+
+To validate our simulation-based findings against real model behavior, we repeat both experiments using an actual language model. We use Llama~3.2 (3B parameters)~\cite{llama3} running locally via Ollama, an open-source framework for serving LLMs on consumer hardware. This setup requires no API access or token budget and runs entirely on a single machine, making it reproducible at zero cost.
+
+The agent architecture remains the same as described in Section~\ref{sec:approach}. The only change is that the rule-based decision logic is replaced with actual LLM inference. When the agent receives a user prompt or a tool output, it is passed to the local model, which generates a response. If the response contains a tool call in JSON format, the agent executes it. All four defensive strategies and all four evaluation metrics are applied identically to the simulation experiments.
+
+We run 5 trials per attack--defense configuration. While this is fewer than the 50 trials used in simulation, LLM inference is significantly slower, and the results are sufficient to confirm whether the patterns observed in simulation hold with a real model.
+
+\subsection{Experiment 1: Direct Prompt Injection}
+
+Table~\ref{tab:llm_direct} shows the results of direct prompt injection against the LLM-based agent.
+
+\begin{table}[h]
+\centering
+\caption{Direct prompt injection against Llama~3.2 (3B), 5 trials per condition.}
+\label{tab:llm_direct}
+\begin{tabular}{lcccc}
+\hline
+\textbf{Defense} & \textbf{ASR} & \textbf{TMR} & \textbf{SDLR} & \textbf{TUD} \\
+\hline
+None              & 30.0\% & 0.0\% &  5.0\% & 0.0\% \\
+Prompt isolation  & 25.0\% & 0.0\% &  0.0\% & 0.0\% \\
+Provenance        & 25.0\% & 0.0\% &  0.0\% & 0.0\% \\
+Tool permission   & 25.0\% & 0.0\% &  0.0\% & 0.0\% \\
+Prompt detection  & 25.0\% & 0.0\% &  0.0\% & 0.0\% \\
+All combined      & 25.0\% & 0.0\% &  0.0\% & 0.0\% \\
+\hline
+\end{tabular}
+\end{table}
+
+The LLM-based agent is notably more resistant to direct injection than the simulation predicted. Baseline ASR is 30.0\% compared to 75.0\% in simulation. This is expected: Llama~3.2 has undergone safety training (RLHF) that teaches it to refuse overtly malicious instructions such as ``ignore all previous instructions.'' The model often responds with refusal text rather than producing a tool call, which results in 0.0\% TMR across all conditions since the model rarely outputs valid tool call JSON when it detects a suspicious request.
+
+Even a small defense reduces ASR to 25.0\%, which represents the residual vulnerability from the social engineering attack scenario where the model complies with a plausible-sounding ``system administrator'' request. SDLR drops to 0.0\% with any defense, as the model avoids echoing sensitive fields in its output when provenance or isolation markers are present.
+
+\subsection{Experiment 2: Indirect Prompt Injection}
+
+Table~\ref{tab:llm_indirect} shows the results of indirect prompt injection, where malicious instructions are embedded in tool outputs.
+
+\begin{table}[h]
+\centering
+\caption{Indirect prompt injection against Llama~3.2 (3B), 5 trials per condition.}
+\label{tab:llm_indirect}
+\begin{tabular}{lcccc}
+\hline
+\textbf{Defense} & \textbf{ASR} & \textbf{TMR} & \textbf{SDLR} & \textbf{TUD} \\
+\hline
+None              & 75.0\% & 25.0\% & 25.0\% & 0.0\% \\
+Prompt isolation  & 65.0\% & 24.2\% &  0.0\% & 0.0\% \\
+Provenance        & 55.0\% & 17.1\% & 15.0\% & 0.0\% \\
+Tool permission   & 25.0\% & 25.0\% & 25.0\% & 0.0\% \\
+Prompt detection  & 55.0\% & 18.2\% &  5.0\% & 0.0\% \\
+All combined      & 25.0\% & 26.5\% &  0.0\% & 0.0\% \\
+\hline
+\end{tabular}
+\end{table}
+
+Indirect injection is substantially more effective against the real model. Baseline ASR is 75.0\%, compared to 30.0\% for direct injection. This confirms a key finding from the literature: LLMs are more susceptible to injections embedded in tool outputs because the model has no reason to distrust data that it requested itself. Safety training primarily targets adversarial user prompts, not adversarial data returned by tools.
+
+Prompt isolation reduces ASR to 65.0\% and provenance marking to 55.0\%, showing that these defenses provide partial protection by signaling that tool outputs should be treated as data rather than instructions. Prompt detection achieves the same 55.0\% ASR while also reducing SDLR from 25.0\% to 5.0\%. Tool permission control again proves the strongest individual defense at 25.0\% ASR, consistent with the simulation results.
+
+The combined defense reduces ASR to 25.0\% and SDLR to 0.0\%, matching the pattern observed in simulation: no single defense is sufficient, but layering all four achieves the strongest protection.
+
+\subsection{Comparison: Simulation vs.\ LLM}
+
+Table~\ref{tab:comparison} compares the undefended and fully defended ASR across the simulation and LLM experiments.
+
+\begin{table}[h]
+\centering
+\caption{ASR comparison: rule-based simulation (50 trials) vs.\ Llama~3.2 3B (5 trials).}
+\label{tab:comparison}
+\begin{tabular}{lcccc}
+\hline
+ & \multicolumn{2}{c}{\textbf{Direct}} & \multicolumn{2}{c}{\textbf{Indirect}} \\
+\textbf{Defense} & \textbf{Sim.} & \textbf{LLM} & \textbf{Sim.} & \textbf{LLM} \\
+\hline
+None          & 75.0\% & 30.0\% & 48.5\% & 75.0\% \\
+All combined  & 25.0\% & 25.0\% &  5.0\% & 25.0\% \\
+\hline
+\end{tabular}
+\end{table}
+
+Two patterns emerge:
+
+\begin{enumerate}
+    \item \textbf{Direct injection is harder against real models.} The simulation overestimates direct ASR (75.0\% vs.\ 30.0\%) because it does not model safety training. Real models trained with RLHF learn to refuse overtly malicious prompts, a capability that rule-based simulation cannot capture. This suggests that direct prompt injection, while still a risk, is partially mitigated by standard model alignment.
+
+    \item \textbf{Indirect injection is harder to defend in practice.} The real model shows higher indirect ASR (75.0\%) than the simulation (48.5\%). This is because the model genuinely trusts tool outputs and follows embedded instructions that sound authoritative, such as fake system notices and compliance directives. Safety training does not cover this attack surface, making indirect injection the more dangerous threat in deployed agent systems.
+\end{enumerate}
+
+Both experiments converge on the same conclusion: layered defenses are necessary, and tool permission controls provide the most reliable protection because they operate at the execution boundary regardless of whether the model was influenced by the injection.
