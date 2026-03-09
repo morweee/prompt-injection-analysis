@@ -1,8 +1,8 @@
 # Prompt Injection Analysis
 
-Research project investigating prompt injection vulnerabilities in tool-using LLM agents. We test direct and indirect injection attacks against both a rule-based simulated agent and a real local LLM (Llama 3.2 via Ollama), and evaluate four defensive strategies.
+Research project investigating prompt injection attack vulnerabilities in LLM agents. We test direct and indirect injection attacks against both a rule-based simulated agent and a real local LLM (Llama 3.2 via Ollama), and evaluate four defensive strategies.
 
-## What's in here
+## Code Overview
 
 - `experiments/` — main experiment code (attacks, defenses, metrics, agents)
 - `experiments/run_all.py` — runs the rule-based simulation experiments
@@ -12,35 +12,27 @@ Research project investigating prompt injection vulnerabilities in tool-using LL
 
 ## Setup
 
-You'll need Python 3.10+ and a few packages. Nothing crazy.
+Require Python 3.10+ and a few langchain packages.
 
 ```bash
 pip install langchain-core requests
 ```
 
-That should be enough for the simulation side of things.
-
 ### For the LLM experiments (optional)
 
-If you want to run the LLM-based experiments you need Ollama installed locally. Grab it from https://ollama.com or on Mac:
+Require Ollama installed locally to run the LLM-based experiments. Download available from https://ollama.com
 
-```bash
-brew install ollama
-```
-
-Then pull the model we used:
+Then pull the model used in the experiment:
 
 ```bash
 ollama pull llama3.2:3b
 ```
 
-Make sure the Ollama server is running before you start:
+Make sure the Ollama server is running before starting:
 
 ```bash
 ollama serve
 ```
-
-(If you installed the Mac app it might already be running in the background.)
 
 ## Running experiments
 
@@ -50,11 +42,7 @@ ollama serve
 python -m experiments.run_all
 ```
 
-This runs 50 trials by default. You can tweak it:
-
-```bash
-python -m experiments.run_all --trials 100 --vulnerability 0.8 --seed 123
-```
+This runs 50 trials by default.
 
 ### LLM-based experiments
 
@@ -62,11 +50,7 @@ python -m experiments.run_all --trials 100 --vulnerability 0.8 --seed 123
 python -m experiments.llm_agent
 ```
 
-This is slower since it's doing actual inference. Defaults to 5 trials. You can change the model if you have others pulled in Ollama:
-
-```bash
-python -m experiments.llm_agent --model mistral --trials 3
-```
+It is slower since it's doing actual inference. Defaults to 5 trials.
 
 ### Toy example
 
@@ -74,10 +58,10 @@ python -m experiments.llm_agent --model mistral --trials 3
 python toy_tool_description.py
 ```
 
-Just a quick standalone demo, no dependencies needed beyond the standard library.
+A quick and simple standalone demo, no dependencies needed.
 
 ## Notes
 
+- Experiements results are in `experiments/results.md`
 - The simulation uses a configurable vulnerability parameter (default 0.7) that controls how likely the agent is to follow injected instructions. It's not meant to be a perfect model of real LLM behavior, just a fast way to test defense logic.
 - LLM results will vary between runs since model output isn't fully deterministic even at low temperature.
-- Pre-recorded results are in `experiments/results.md` if you just want to see the numbers without running anything.
