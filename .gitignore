@@ -4,3 +4,10 @@ __pycache__/
 .claude/
 paper/
 
+# Sweep artifacts (generated; can be re-run from code)
+agentdojo_integration/results_agentdojo.jsonl
+agentdojo_integration/results_agentdojo.md
+agentdojo_integration/smoke.jsonl
+agentdojo_integration/smoke.md
+agentdojo_integration/sweep.log
+.venv/

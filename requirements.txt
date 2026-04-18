@@ -1,0 +1,11 @@
+# Core deps for legacy pipeline (experiments/)
+langchain-core>=0.3.0
+requests>=2.31.0
+
+# AgentDojo integration (agentdojo_integration/)
+# transformers extra pulls in torch + transformers for the PI detector baseline
+agentdojo[transformers]>=0.1.35,<0.2.0
+openai>=1.59.7
+
+# Ollama is used via its OpenAI-compatible endpoint at http://localhost:11434/v1
+# No python client needed — the openai SDK handles it

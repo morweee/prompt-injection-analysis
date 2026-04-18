@@ -10,8 +10,19 @@ import random
 from collections import defaultdict
 
 from experiments.attacks import DIRECT_ATTACKS, INDIRECT_ATTACKS
+from experiments.attacks_adaptive import (
+    ADAPTIVE_DIRECT_ATTACKS,
+    ADAPTIVE_INDIRECT_ATTACKS,
+)
 from experiments.simulated_agent import SimulatedAgent
-from experiments.metrics import compute_asr, compute_tmr, compute_sdlr, compute_task_utility
+from experiments.metrics import (
+    bootstrap_ci,
+    compute_adaptivity_gap,
+    compute_asr,
+    compute_sdlr,
+    compute_task_utility,
+    compute_tmr,
+)
 from experiments.agent_env import CANARY_TOKENS
 
 
@@ -147,11 +158,103 @@ def _print_results_table(experiment_name: str, results: dict):
     print(f"  Best defense: {best} (ASR={results[best]['ASR']:.1%})")
 
 
+def _run_pair(direct_atks, indirect_atks, trials, vulnerability):
+    direct = run_direct_experiment_with(direct_atks, trials, vulnerability)
+    indirect = run_indirect_experiment_with(indirect_atks, trials, vulnerability)
+    return direct, indirect
+
+
+def run_direct_experiment_with(attacks, num_trials, vulnerability):
+    # thin generalization of run_direct_experiment so we can reuse for adaptive
+    results = {}
+    for defense_name, defense_list in DEFENSE_CONFIGS.items():
+        traces, checks = [], []
+        for _ in range(num_trials):
+            for atk_name, atk in attacks.items():
+                agent = SimulatedAgent(vulnerability=vulnerability, defenses=defense_list)
+                trace = agent.run_direct_attack(atk["prompt"])
+                traces.append(trace)
+                def make_check(attack):
+                    def check(t):
+                        for a in t.actions:
+                            if a.tool_name == attack["target_tool"] and not a.was_blocked:
+                                if attack["target_arg_check"](a.tool_args):
+                                    return True
+                        return False
+                    return check
+                checks.append(make_check(atk))
+        results[defense_name] = {
+            "ASR": compute_asr(traces, checks),
+            "TMR": compute_tmr(traces),
+            "SDLR": compute_sdlr(traces),
+            "traces": traces,
+            "checks": checks,
+        }
+    for d in DEFENSE_CONFIGS:
+        results[d]["Utility_Deg"] = (
+            0.0 if d == "none"
+            else compute_task_utility(results[d]["traces"], results["none"]["traces"])
+        )
+    return results
+
+
+def run_indirect_experiment_with(attacks, num_trials, vulnerability):
+    results = {}
+    for defense_name, defense_list in DEFENSE_CONFIGS.items():
+        traces, checks = [], []
+        for _ in range(num_trials):
+            for atk_name, atk in attacks.items():
+                agent = SimulatedAgent(vulnerability=vulnerability, defenses=defense_list)
+                trace = agent.run_indirect_attack(
+                    task=atk["task"],
+                    tool_to_poison=atk["tool_to_poison"],
+                    poisoned_output=atk["poisoned_output"],
+                )
+                traces.append(trace)
+                def make_check(attack):
+                    def check(t):
+                        for a in t.actions:
+                            if a.tool_name == attack["expected_hijack_tool"] and not a.was_blocked:
+                                if attack["hijack_check"](a.tool_args):
+                                    return True
+                        return False
+                    return check
+                checks.append(make_check(atk))
+        results[defense_name] = {
+            "ASR": compute_asr(traces, checks),
+            "TMR": compute_tmr(traces),
+            "SDLR": compute_sdlr(traces),
+            "traces": traces,
+            "checks": checks,
+        }
+    for d in DEFENSE_CONFIGS:
+        results[d]["Utility_Deg"] = (
+            0.0 if d == "none"
+            else compute_task_utility(results[d]["traces"], results["none"]["traces"])
+        )
+    return results
+
+
+def print_gap_table(name, baseline_results, adaptive_results):
+    print(f"\n  Adaptivity Gap: {name}")
+    print("-" * 76)
+    print(f"  {'Defense':22s} | {'Base ASR':>9s} | {'Adapt ASR':>10s} | {'Gap (pp)':>10s}")
+    print("-" * 76)
+    for d in DEFENSE_CONFIGS:
+        b = baseline_results[d]["ASR"]
+        a = adaptive_results[d]["ASR"]
+        gap = compute_adaptivity_gap(b, a) * 100
+        print(f"  {d:22s} | {b:>8.1%} | {a:>9.1%} | {gap:>+9.1f}")
+    print("-" * 76)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Agent Security Experiments")
     parser.add_argument("--trials", type=int, default=50, help="Trials per condition")
     parser.add_argument("--vulnerability", type=float, default=0.7, help="Agent vulnerability (0-1)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--adaptive", action="store_true",
+                        help="Also run the adaptive attack suite and report gap tables")
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -162,8 +265,18 @@ def main():
     print(f"#  Trials={args.trials}, Vulnerability={args.vulnerability}, Seed={args.seed}")
     print("#" * 76)
 
-    run_direct_experiment(args.trials, args.vulnerability)
-    run_indirect_experiment(args.trials, args.vulnerability)
+    base_direct = run_direct_experiment_with(DIRECT_ATTACKS, args.trials, args.vulnerability)
+    _print_results_table("Direct Injection (baseline)", base_direct)
+    base_indirect = run_indirect_experiment_with(INDIRECT_ATTACKS, args.trials, args.vulnerability)
+    _print_results_table("Indirect Injection (baseline)", base_indirect)
+
+    if args.adaptive:
+        adp_direct = run_direct_experiment_with(ADAPTIVE_DIRECT_ATTACKS, args.trials, args.vulnerability)
+        _print_results_table("Direct Injection (adaptive)", adp_direct)
+        adp_indirect = run_indirect_experiment_with(ADAPTIVE_INDIRECT_ATTACKS, args.trials, args.vulnerability)
+        _print_results_table("Indirect Injection (adaptive)", adp_indirect)
+        print_gap_table("Direct", base_direct, adp_direct)
+        print_gap_table("Indirect", base_indirect, adp_indirect)
 
 
 if __name__ == "__main__":
